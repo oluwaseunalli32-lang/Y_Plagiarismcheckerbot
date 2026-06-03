@@ -10,21 +10,18 @@ from flask import Flask, request
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 2. Environment Variables & App Instantiation
+# 2. Environment Variables
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")  
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# Initialize Flask
-app = Flask(name)
+# 3. Initialize Flask correctly with double underscores
+app = Flask(__name__)
 
-# Initialize Telegram Application globally
+# 4. Initialize Telegram Application
 telegram_app = Application.builder().token(TOKEN).build()
 
-# Track initialization status
-bot_initialized = False
-
-# 3. Telegram Core Logic
+# 5. Telegram Core Logic
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the command /start is issued."""
     welcome_text = (
@@ -68,7 +65,7 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         matches = response.get("sources", response.get("matches", []))
 
         report = f"📊 **Plagiarism Scan Results:**\n"
-        report += f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        report += f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         report += f"✨ **Unique Content:** {unique_percent}%\n"
         report += f"🚨 **Plagiarized:** {plagiarism_percent}%\n\n"
 
@@ -90,42 +87,41 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error executing plagiarism check: {e}")
         await processing_msg.edit_text("❌ An unexpected error occurred while processing your request. Please try again later.")
 
-# 4. Asynchronous Bot Bootstrapping Function
-async def async_initialize_bot():
-    """Initializes router loops and ties webhooks down securely."""
-    global bot_initialized
-    if not bot_initialized:
-        telegram_app.add_handler(CommandHandler("start", start))
-        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
-        
-        await telegram_app.initialize()
-        await telegram_app.start()
-        
-        webhook_url = f"{RENDER_URL}/{TOKEN}"
-        await telegram_app.bot.set_webhook(url=webhook_url)
-        logger.info(f"Webhook successfully registered at: {webhook_url}")
-        bot_initialized = True
+# Register routes/handlers immediately
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
 
-# 5. Webhook & Flask Application Routing
+# 6. Webhook Routing & Safe Processing
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
-    """Listens for incoming updates routed from Telegram."""
-    # Ensure bot is ready before taking messages
-    if not bot_initialized:
-        asyncio.run(async_initialize_bot())
+    """Listens for incoming updates and safely processes them using the app loop."""
+    try:
+        update_data = request.get_json(force=True)
+        update = Update.de_json(update_data, telegram_app.bot)
         
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    telegram_app.update_queue.put(update)
-    return "OK", 200
+        # Explicitly run the update handling on the current thread's event loop safely
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(telegram_app.initialize())
+        loop.run_until_complete(telegram_app.process_update(update))
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Error processing webhook update: {e}")
+        return "Internal Error", 500
 
 @app.route("/", methods=["GET"])
 def health_check():
-    """Triggers initialization and answers Render pings."""
-    if not bot_initialized:
-        asyncio.run(async_initialize_bot())
+    """Keep-alive ping handler to check if server is listening."""
+    # Ensure webhook is set if Render hits the root endpoint
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        webhook_url = f"{RENDER_URL}/{TOKEN}"
+        loop.run_until_complete(telegram_app.bot.set_webhook(url=webhook_url))
+    except Exception as e:
+        logger.error(f"Could not reset webhook on health check: {e}")
     return "Y_Plagiarismcheckerbot is running live!", 200
 
-# Standalone execution hook
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
