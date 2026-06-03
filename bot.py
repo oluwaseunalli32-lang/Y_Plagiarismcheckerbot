@@ -1,10 +1,8 @@
 import os
 import logging
-import asyncio
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from flask import Flask, request
 
 # 1. Logging Configuration
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -12,16 +10,9 @@ logger = logging.getLogger(__name__)
 
 # 2. Environment Variables
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")  
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# 3. Initialize Flask correctly with double underscores
-app = Flask(__name__)
-
-# 4. Initialize Telegram Application
-telegram_app = Application.builder().token(TOKEN).build()
-
-# 5. Telegram Core Logic
+# 3. Telegram Core Logic
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the command /start is issued."""
     welcome_text = (
@@ -65,7 +56,7 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         matches = response.get("sources", response.get("matches", []))
 
         report = f"📊 **Plagiarism Scan Results:**\n"
-        report += f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        report += f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         report += f"✨ **Unique Content:** {unique_percent}%\n"
         report += f"🚨 **Plagiarized:** {plagiarism_percent}%\n\n"
 
@@ -87,41 +78,18 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error executing plagiarism check: {e}")
         await processing_msg.edit_text("❌ An unexpected error occurred while processing your request. Please try again later.")
 
-# Register routes/handlers immediately
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
+def main():
+    """Builds and starts the bot using standard polling mode."""
+    # Build application
+    application = Application.builder().token(TOKEN).build()
 
-# 6. Webhook Routing & Safe Processing
-@app.route(f"/{TOKEN}", methods=["POST"])
-def telegram_webhook():
-    """Listens for incoming updates and safely processes them using the app loop."""
-    try:
-        update_data = request.get_json(force=True)
-        update = Update.de_json(update_data, telegram_app.bot)
-        
-        # Explicitly run the update handling on the current thread's event loop safely
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(telegram_app.initialize())
-        loop.run_until_complete(telegram_app.process_update(update))
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"Error processing webhook update: {e}")
-        return "Internal Error", 500
+    # Add routing handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
 
-@app.route("/", methods=["GET"])
-def health_check():
-    """Keep-alive ping handler to check if server is listening."""
-    # Ensure webhook is set if Render hits the root endpoint
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        webhook_url = f"{RENDER_URL}/{TOKEN}"
-        loop.run_until_complete(telegram_app.bot.set_webhook(url=webhook_url))
-    except Exception as e:
-        logger.error(f"Could not reset webhook on health check: {e}")
-    return "Y_Plagiarismcheckerbot is running live!", 200
+    # Run polling loop natively
+    logger.info("Starting bot long-polling execution...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    main()
