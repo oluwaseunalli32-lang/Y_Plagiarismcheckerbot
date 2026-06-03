@@ -1,8 +1,6 @@
 import os
 import logging
-import threading
 import requests
-from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -14,23 +12,8 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# 3. Dummy Flask Server to satisfy Render's port checks
-app = Flask(__name__)
-
-@app.route("/", methods=["GET"])
-@app.route("/health", methods=["GET"])
-def health_check():
-    return "Y_Plagiarismcheckerbot is fully operational!", 200
-
-def run_flask():
-    # Render automatically provides the PORT environment variable
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting dummy web server on port {port} for Render...")
-    app.run(host="0.0.0.0", port=port)
-
-# 4. Telegram Core Logic
+# 3. Telegram Core Logic
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message when the command /start is issued."""
     welcome_text = (
         "🔍 **Welcome to Y_Plagiarismcheckerbot!**\n\n"
         "Send me any text (minimum 40 characters), and I will scan billions of online pages to check its originality.\n\n"
@@ -39,7 +22,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
 async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles incoming text, calls the multilingual RapidAPI endpoint, and returns a breakdown."""
     user_text = update.message.text
     
     if len(user_text) < 40:
@@ -95,11 +77,6 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text("❌ An unexpected error occurred while processing your request. Please try again later.")
 
 def main():
-    # Start the dummy web server in a separate background thread
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-
     # Build and launch the Telegram bot using standard polling
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
