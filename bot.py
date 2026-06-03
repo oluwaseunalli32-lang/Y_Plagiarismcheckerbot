@@ -4,15 +4,14 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# 1. Logging Configuration
+# Logging Configuration
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 2. Environment Variables
+# Environment Variables
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# 3. Telegram Core Logic
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "🔍 **Welcome to Y_Plagiarismcheckerbot!**\n\n"
@@ -77,7 +76,6 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text("❌ An unexpected error occurred while processing your request. Please try again later.")
 
 def main():
-    # Build and launch the Telegram bot using standard polling
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
