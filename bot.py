@@ -1,6 +1,8 @@
 import os
 import logging
+import threading
 import requests
+from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -12,7 +14,21 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# 3. Telegram Core Logic
+# 3. Dummy Flask Server to satisfy Render's port checks
+app = Flask(__name__)
+
+@app.route("/", methods=["GET"])
+@app.route("/health", methods=["GET"])
+def health_check():
+    return "Y_Plagiarismcheckerbot is fully operational!", 200
+
+def run_flask():
+    # Render automatically provides the PORT environment variable
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting dummy web server on port {port} for Render...")
+    app.run(host="0.0.0.0", port=port)
+
+# 4. Telegram Core Logic
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the command /start is issued."""
     welcome_text = (
@@ -79,16 +95,17 @@ async def check_plagiarism(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text("❌ An unexpected error occurred while processing your request. Please try again later.")
 
 def main():
-    """Builds and starts the bot using standard polling mode."""
-    # Build application
-    application = Application.builder().token(TOKEN).build()
+    # Start the dummy web server in a separate background thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
 
-    # Add routing handlers
+    # Build and launch the Telegram bot using standard polling
+    application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_plagiarism))
 
-    # Run polling loop natively
-    logger.info("Starting bot long-polling execution...")
+    logger.info("Starting bot long-polling loop...")
     application.run_polling()
 
 if __name__ == "__main__":
